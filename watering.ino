@@ -46,7 +46,8 @@
 #define B_2 9
 #define B_3 10
 #define B_4 14
-#define L_1 12
+//#define L_1 12
+#define L_1 16
 #define L_2 5
 #define L_3 4
 #define L_4 15
@@ -62,6 +63,8 @@ char ESP_CHIP_ID[8];
 char UID[16];
 long rssi;
 unsigned long TTasks;
+
+
 #ifdef CH_1
   bool sendStatus1 = false;
   int  SS1;
@@ -97,7 +100,11 @@ unsigned long TTasks;
 extern "C" { 
   #include "user_interface.h" 
 }
-WiFiClient wifiClient;
+#ifdef TLS
+WiFiClientSecure  wifiClient;
+#else
+WiFiClient        wifiClient;
+#endif
 PubSubClient mqttClient(wifiClient, MQTT_SERVER, MQTT_PORT);
 
 
@@ -152,7 +159,8 @@ void callback(const MQTT::Publish& pub) {
 
 void setup() {
   pinMode(LED, OUTPUT);
-  digitalWrite(LED, HIGH);;
+  digitalWrite(LED, HIGH);
+  setTime(7, 19, 0, 24, 5, 18); // set time to
   Serial.begin(115200);
   sprintf(ESP_CHIP_ID, "%06X", ESP.getChipId());
   sprintf(UID, HOST_PREFIX, ESP_CHIP_ID);
@@ -166,7 +174,7 @@ void setup() {
       digitalWrite(L_1, HIGH);
     }
 	Alarm.alarmRepeat(7, 20, 0, channel1_on);
-	Alarm.alarmRepeat(7, 40, 0, channel1_off);
+	Alarm.alarmRepeat(7, 22, 0, channel1_off);
   //  btn_timer1.attach(0.05, button1);
   #endif
   #ifdef CH_2
@@ -282,11 +290,30 @@ void setup() {
 
 void loop() { 
   ArduinoOTA.handle();
+  Alarm.delay(10);
   if (OTAupdate == false) { 
     mqttClient.loop();
     timedTasks();
     checkStatus();
+	
   }
+}
+
+void digitalClockDisplay()
+{
+	// digital clock display of the time
+	Serial.print(hour());
+	printDigits(minute());
+	printDigits(second());
+	Serial.println();
+}
+
+void printDigits(int digits)
+{
+	Serial.print(":");
+	if (digits < 10)
+		Serial.print('0');
+	Serial.print(digits);
 }
 
 void blinkLED(int pin, int duration, int n) {             
@@ -509,10 +536,11 @@ void doReport() {
 }
 
 void timedTasks() {
-  if ((millis() > TTasks + (kUpdFreq*60000)) || (millis() < TTasks)) { 
+  if ((millis() > TTasks + (kUpdFreq*30000)) || (millis() < TTasks)) { 
     TTasks = millis();
     doReport();
     checkConnection();
+	digitalClockDisplay();
   }
 }
 
