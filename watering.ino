@@ -28,6 +28,7 @@
   ===============================================================================================
 */
 
+#include <NTPClient.h>
 #include <TimeLib.h>
 #include <Time.h>
 #include "config_mc.h"
@@ -46,8 +47,8 @@
 #define B_2 9
 #define B_3 10
 #define B_4 14
-//#define L_1 12
-#define L_1 16
+#define L_1 12
+//#define L_1 16
 #define L_2 5
 #define L_3 4
 #define L_4 15
@@ -64,6 +65,13 @@ char UID[16];
 long rssi;
 unsigned long TTasks;
 
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, NTP_SERVER, NTP_OFFSET, 60000);
+
+time_t getNTPtime() {
+	timeClient.forceUpdate();
+	return timeClient.getEpochTime();
+}
 
 #ifdef CH_1
   bool sendStatus1 = false;
@@ -160,7 +168,7 @@ void callback(const MQTT::Publish& pub) {
 void setup() {
   pinMode(LED, OUTPUT);
   digitalWrite(LED, HIGH);
-  setTime(7, 19, 0, 24, 5, 18); // set time to
+  //setTime(7, 19, 0, 24, 5, 18); // set time to
   Serial.begin(115200);
   sprintf(ESP_CHIP_ID, "%06X", ESP.getChipId());
   sprintf(UID, HOST_PREFIX, ESP_CHIP_ID);
@@ -251,7 +259,7 @@ void setup() {
   Serial.print(UID);
   Serial.print("\nConnecting to "); Serial.print(WIFI_SSID); Serial.print(" Wifi"); 
   
- 
+  setSyncProvider(getNTPtime);
 
 
   while ((WiFi.status() != WL_CONNECTED) && kRetries --) {
@@ -267,6 +275,7 @@ void setup() {
       Serial.print(" .");
       delay(1000);
     }
+	timeClient.begin();
     if(mqttClient.connected()) {
       Serial.println(" DONE");
       Serial.println("\n---------------------  Logs  ---------------------");
@@ -274,6 +283,11 @@ void setup() {
       mqttClient.subscribe(MQTT_TOPIC);
       blinkLED(LED, 40, 8);
       digitalWrite(LED, LOW);
+	  Serial.print("Getting curent date/time "); 
+	  if (timeClient.forceUpdate()) {
+		  setTime(timeClient.getEpochTime());
+		  Serial.println(timeClient.getFormattedTime());
+	  }
     }
     else {
       Serial.println(" FAILED!");
@@ -291,6 +305,7 @@ void setup() {
 void loop() { 
   ArduinoOTA.handle();
   Alarm.delay(10);
+  timeClient.update();
   if (OTAupdate == false) { 
     mqttClient.loop();
     timedTasks();
@@ -541,6 +556,7 @@ void timedTasks() {
     doReport();
     checkConnection();
 	digitalClockDisplay();
+	timeClient.update();
   }
 }
 
