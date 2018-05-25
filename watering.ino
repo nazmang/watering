@@ -73,12 +73,15 @@ time_t getNTPtime() {
 	return timeClient.getEpochTime();
 }
 
+Ticker sensor_timer;
+bool isRain = false;
+
 #ifdef CH_1
   bool sendStatus1 = false;
   int  SS1;
   unsigned long count1 = 0;
   Ticker btn_timer1;
-  void channel1_on() { digitalWrite(L_1, HIGH); sendStatus1 = true; }
+  void channel1_on() { if (!isRain) digitalWrite(L_1, HIGH); else Serial.println("It's raining now! Can't turn Relay 1 ON "); sendStatus1 = true; }
   void channel1_off() { digitalWrite(L_1, LOW); sendStatus1 = true; }
 #endif
 #ifdef CH_2
@@ -86,7 +89,7 @@ time_t getNTPtime() {
   int  SS2;
   unsigned long count2 = 0;
   Ticker btn_timer2;
-  void channel2_on() { digitalWrite(L_2, HIGH); sendStatus2 = true; }
+  void channel2_on() { if (!isRain) digitalWrite(L_2, HIGH); else Serial.println("It's raining now! Can't turn Relay 2 ON "); sendStatus2 = true; }
   void channel2_off() { digitalWrite(L_2, LOW); sendStatus2 = true; }
 #endif
 #ifdef CH_3
@@ -94,7 +97,7 @@ time_t getNTPtime() {
   int  SS3;
   unsigned long count3 = 0;
   Ticker btn_timer3;
-  void channel3_on() { digitalWrite(L_3, HIGH); sendStatus3 = true; }
+  void channel3_on() { if (!isRain) digitalWrite(L_3, HIGH); else Serial.println("It's raining now! Can't turn Relay 3 ON "); sendStatus3 = true; }
   void channel3_off() { digitalWrite(L_3, LOW); sendStatus3 = true; }
 #endif
 #ifdef CH_4
@@ -102,7 +105,7 @@ time_t getNTPtime() {
   int  SS4;
   unsigned long count4 = 0;
   Ticker btn_timer4;
-  void channel4_on() { digitalWrite(L_4, HIGH); sendStatus4 = true; }
+  void channel4_on() { if (!isRain) digitalWrite(L_4, HIGH); else Serial.println("It's raining now! Can't turn Relay 4 ON "); sendStatus4 = true; }
   void channel4_off() { digitalWrite(L_4, LOW); sendStatus4 = true; }
 #endif
 extern "C" { 
@@ -114,8 +117,6 @@ WiFiClientSecure  wifiClient;
 WiFiClient        wifiClient;
 #endif
 PubSubClient mqttClient(wifiClient, MQTT_SERVER, MQTT_PORT);
-
-
 
 void callback(const MQTT::Publish& pub) {
   if (pub.payload_string() == "stat") {
@@ -168,6 +169,9 @@ void callback(const MQTT::Publish& pub) {
 void setup() {
   pinMode(LED, OUTPUT);
   digitalWrite(LED, HIGH);
+  // Rain sensor
+  pinMode(RAIN_SENSOR, INPUT);
+  sensor_timer.attach(300, detectRain);
   //setTime(7, 19, 0, 24, 5, 18); // set time to
   Serial.begin(115200);
   sprintf(ESP_CHIP_ID, "%06X", ESP.getChipId());
@@ -181,8 +185,7 @@ void setup() {
     if (rememberRelayState1 && SS1 == 1) {
       digitalWrite(L_1, HIGH);
     }
-	Alarm.alarmRepeat(7, 20, 0, channel1_on);
-	Alarm.alarmRepeat(7, 22, 0, channel1_off);
+	
   //  btn_timer1.attach(0.05, button1);
   #endif
   #ifdef CH_2
@@ -193,8 +196,7 @@ void setup() {
     if (rememberRelayState2 && SS2 == 1) {
       digitalWrite(L_2, HIGH);
     }
-	Alarm.alarmRepeat(7, 40, 0, channel2_on);
-	Alarm.alarmRepeat(8, 0, 0, channel2_off);
+	
    // btn_timer2.attach(0.05, button2);
   #endif
   #ifdef CH_3
@@ -205,8 +207,7 @@ void setup() {
     if (rememberRelayState3 && SS3 == 1) {
       digitalWrite(L_3, HIGH);
     }
-	Alarm.alarmRepeat(8, 0, 0, channel3_on);
-	Alarm.alarmRepeat(8, 20, 0, channel3_off);
+	
    // btn_timer3.attach(0.05, button3);
   #endif
   #ifdef CH_4
@@ -217,8 +218,7 @@ void setup() {
     if (rememberRelayState4 && SS4 == 1) {
       digitalWrite(L_4, HIGH);
     }
-	Alarm.alarmRepeat(8, 20, 0, channel3_on);
-	Alarm.alarmRepeat(8, 40, 0, channel3_off);
+	
     //btn_timer4.attach(0.05, button4);
   #endif
   mqttClient.set_callback(callback);
@@ -283,7 +283,7 @@ void setup() {
       mqttClient.subscribe(MQTT_TOPIC);
       blinkLED(LED, 40, 8);
       digitalWrite(LED, LOW);
-	  Serial.print("Getting curent date/time "); 
+	  Serial.print("Requesting curent date/time "); 
 	  if (timeClient.forceUpdate()) {
 		  setTime(timeClient.getEpochTime());
 		  Serial.println(timeClient.getFormattedTime());
@@ -299,18 +299,46 @@ void setup() {
     Serial.println(" WiFi FAILED!");
     Serial.println("\n--------------------------------------------------");
     Serial.println();
+	requestRestart = true;
+  }
+  if (timeStatus() == timeSet) {
+#ifdef CH_1
+	  Alarm.alarmRepeat(7, 20, 0, channel1_on);
+	  Alarm.alarmRepeat(7, 40, 0, channel1_off);
+	  Alarm.alarmRepeat(17, 20, 0, channel1_on);
+	  Alarm.alarmRepeat(17, 40, 0, channel1_off);
+#endif
+#ifdef CH_2
+	  Alarm.alarmRepeat(7, 40, 0, channel2_on);
+	  Alarm.alarmRepeat(8, 0, 0, channel2_off);
+	  Alarm.alarmRepeat(17, 40, 0, channel2_on);
+	  Alarm.alarmRepeat(18, 0, 0, channel2_off);
+#endif
+#ifdef CH_3
+	  Alarm.alarmRepeat(8, 0, 0, channel3_on);
+	  Alarm.alarmRepeat(8, 20, 0, channel3_off);
+	  Alarm.alarmRepeat(18, 58, 0, channel3_on);
+	  Alarm.alarmRepeat(19, 00, 0, channel3_off);
+#endif
+#ifdef CH_4
+	  Alarm.alarmRepeat(8, 20, 0, channel3_on);
+	  Alarm.alarmRepeat(8, 40, 0, channel3_off);
+	  Alarm.alarmRepeat(18, 20, 0, channel3_on);
+	  Alarm.alarmRepeat(18, 40, 0, channel3_off);
+#endif
+
   }
 }
 
 void loop() { 
   ArduinoOTA.handle();
-  Alarm.delay(10);
-  timeClient.update();
+  Alarm.delay(50);
+  
   if (OTAupdate == false) { 
     mqttClient.loop();
     timedTasks();
     checkStatus();
-	
+	if (!timeClient.update()) Serial.println("Time update FAILED!");
   }
 }
 
@@ -338,6 +366,10 @@ void blinkLED(int pin, int duration, int n) {
     digitalWrite(pin, LOW);
     delay(duration);
   }
+}
+
+void detectRain() {
+	isRain = digitalRead(RAIN_SENSOR);
 }
 
 #ifdef CH_1
@@ -408,6 +440,11 @@ void checkConnection() {
     } 
     else {
       Serial.println("mqtt broker connection . . . . . . . . . . LOST");
+	  Serial.print("Reconnecting ");
+	  while (!mqttClient.connect(MQTT::Connect(UID).set_keepalive(90).set_auth(MQTT_USER, MQTT_PASS)) && kRetries--) {
+		  Serial.print(" .");
+		  delay(1000);
+	  }
       requestRestart = true;
     }
   }
@@ -538,15 +575,17 @@ void checkStatus() {
 
 void doReport() {
   rssi = WiFi.RSSI();
-  char message_buff[120];
-  String pubString = "{\"UID\": "+String(UID)+", "+"\"WiFi RSSI\": "+String(rssi)+"dBM"+", "+"\"Topic\": "+String(MQTT_TOPIC)+", "+"\"Ver\": "+String(VER)+"}";
+  char message_buff[140];
+  String pubString = "{\"Time\": "+String(now())+", "+"\"UID\": \""+String(UID)+"\", "+"\"WiFi RSSI\": \""+ String(rssi)+"dBM\""+", "+"\"Topic\": \""+String(MQTT_TOPIC)+"\", "+"\"Ver\": \""+String(VER)+"\"}";
   pubString.toCharArray(message_buff, pubString.length()+1);
   if (kRetain == 0) {
     mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/debug", message_buff).set_qos(QOS));
     mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/heartbeat", "OK").set_qos(QOS));
+	mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/rain", String(isRain)).set_qos(QOS));
   } else {
     mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/debug", message_buff).set_retain().set_qos(QOS));
     mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/heartbeat", "OK").set_retain().set_qos(QOS));
+	mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/rain", String(isRain)).set_qos(QOS));
   }
 }
 
@@ -556,7 +595,10 @@ void timedTasks() {
     doReport();
     checkConnection();
 	digitalClockDisplay();
-	timeClient.update();
+	if (timeStatus() == timeNeedsSync) {
+		Serial.println("Time needs synchronization. Updating..."); getNTPtime();
+	}
+	//if (!timeClient.update()) Serial.println("Time update FAILED!");
   }
 }
 
