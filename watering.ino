@@ -66,6 +66,7 @@ long rssi;
 unsigned long TTasks;
 
 WiFiUDP ntpUDP;
+#define DEBUG_NTPClient
 NTPClient timeClient(ntpUDP, NTP_SERVER, NTP_OFFSET, 60000);
 
 time_t getNTPtime() {
@@ -258,7 +259,7 @@ void setup() {
   Serial.print("\nUnit ID: ");
   Serial.print(UID);
   Serial.print("\nConnecting to "); Serial.print(WIFI_SSID); Serial.print(" Wifi"); 
-  
+  timeClient.begin();
   setSyncProvider(getNTPtime);
 
 
@@ -269,25 +270,25 @@ void setup() {
   if (WiFi.status() == WL_CONNECTED) {  
     Serial.println(" DONE");
     Serial.print("IP Address is: "); Serial.println(WiFi.localIP());
+	Serial.print("Requesting curent date/time ");
+	while (!timeClient.forceUpdate() && kRetries--) {
+		setTime(timeClient.getEpochTime());
+		Serial.println(timeClient.getFormattedTime());
+	}
     Serial.print("Connecting to ");Serial.print(MQTT_SERVER);Serial.print(" Broker . .");
     delay(500);
     while (!mqttClient.connect(MQTT::Connect(UID).set_keepalive(90).set_auth(MQTT_USER, MQTT_PASS)) && kRetries --) {
       Serial.print(" .");
       delay(1000);
     }
-	timeClient.begin();
+	
     if(mqttClient.connected()) {
       Serial.println(" DONE");
       Serial.println("\n---------------------  Logs  ---------------------");
       Serial.println();
       mqttClient.subscribe(MQTT_TOPIC);
       blinkLED(LED, 40, 8);
-      digitalWrite(LED, LOW);
-	  Serial.print("Requesting curent date/time "); 
-	  if (timeClient.forceUpdate()) {
-		  setTime(timeClient.getEpochTime());
-		  Serial.println(timeClient.getFormattedTime());
-	  }
+      digitalWrite(LED, LOW);	 
     }
     else {
       Serial.println(" FAILED!");
@@ -305,26 +306,26 @@ void setup() {
 #ifdef CH_1
 	  Alarm.alarmRepeat(7, 20, 0, channel1_on);
 	  Alarm.alarmRepeat(7, 40, 0, channel1_off);
-	  Alarm.alarmRepeat(17, 20, 0, channel1_on);
-	  Alarm.alarmRepeat(17, 40, 0, channel1_off);
+	  Alarm.alarmRepeat(20, 40, 0, channel1_on);
+	  Alarm.alarmRepeat(20, 50, 0, channel1_off);
 #endif
 #ifdef CH_2
 	  Alarm.alarmRepeat(7, 40, 0, channel2_on);
 	  Alarm.alarmRepeat(8, 0, 0, channel2_off);
-	  Alarm.alarmRepeat(17, 40, 0, channel2_on);
-	  Alarm.alarmRepeat(18, 0, 0, channel2_off);
+	  Alarm.alarmRepeat(20, 50, 0, channel2_on);
+	  Alarm.alarmRepeat(21, 0, 0, channel2_off);
 #endif
 #ifdef CH_3
 	  Alarm.alarmRepeat(8, 0, 0, channel3_on);
 	  Alarm.alarmRepeat(8, 20, 0, channel3_off);
-	  Alarm.alarmRepeat(18, 58, 0, channel3_on);
-	  Alarm.alarmRepeat(19, 00, 0, channel3_off);
+	  Alarm.alarmRepeat(21, 10, 0, channel3_on);
+	  Alarm.alarmRepeat(21, 20, 0, channel3_off);
 #endif
 #ifdef CH_4
 	  Alarm.alarmRepeat(8, 20, 0, channel3_on);
 	  Alarm.alarmRepeat(8, 40, 0, channel3_off);
-	  Alarm.alarmRepeat(18, 20, 0, channel3_on);
-	  Alarm.alarmRepeat(18, 40, 0, channel3_off);
+	  Alarm.alarmRepeat(21, 20, 0, channel3_on);
+	  Alarm.alarmRepeat(21, 30, 0, channel3_off);
 #endif
 
   }
@@ -332,13 +333,13 @@ void setup() {
 
 void loop() { 
   ArduinoOTA.handle();
-  Alarm.delay(50);
+  Alarm.delay(10);
   
   if (OTAupdate == false) { 
     mqttClient.loop();
     timedTasks();
     checkStatus();
-	if (!timeClient.update()) Serial.println("Time update FAILED!");
+	//if (!timeClient.update()) Serial.println("Time update FAILED!");
   }
 }
 
