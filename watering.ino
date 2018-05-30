@@ -28,7 +28,6 @@
   ===============================================================================================
 */
 
-#include <NTPClient.h>
 #include <TimeLib.h>
 #include <Time.h>
 #include "config_mc.h"
@@ -41,7 +40,7 @@
 #include <PubSubClient.h>
 #include <Ticker.h>
 #include <TimeAlarms.h>
-
+#include <sntp.h>
 
 #define B_1 0
 #define B_2 9
@@ -67,11 +66,11 @@ unsigned long TTasks;
 
 WiFiUDP ntpUDP;
 #define DEBUG_NTPClient
-NTPClient timeClient(ntpUDP, NTP_SERVER, NTP_OFFSET, 60000);
+
 
 time_t getNTPtime() {
-	timeClient.forceUpdate();
-	return timeClient.getEpochTime();
+	
+	return sntp_get_current_timestamp();
 }
 
 Ticker sensor_timer;
@@ -259,7 +258,12 @@ void setup() {
   Serial.print("\nUnit ID: ");
   Serial.print(UID);
   Serial.print("\nConnecting to "); Serial.print(WIFI_SSID); Serial.print(" Wifi"); 
-  timeClient.begin();
+  
+  sntp_stop();
+  sntp_setservername(0, "ntp.time.in.ua");
+  sntp_setservername(1, "pool.ntp.org");
+  sntp_set_timezone(2);
+  sntp_init();
   setSyncProvider(getNTPtime);
 
 
@@ -271,10 +275,7 @@ void setup() {
     Serial.println(" DONE");
     Serial.print("IP Address is: "); Serial.println(WiFi.localIP());
 	Serial.print("Requesting curent date/time ");
-	while (!timeClient.forceUpdate() && kRetries--) {
-		setTime(timeClient.getEpochTime());
-		Serial.println(timeClient.getFormattedTime());
-	}
+	Serial.println(sntp_get_current_timestamp());
     Serial.print("Connecting to ");Serial.print(MQTT_SERVER);Serial.print(" Broker . .");
     delay(500);
     while (!mqttClient.connect(MQTT::Connect(UID).set_keepalive(90).set_auth(MQTT_USER, MQTT_PASS)) && kRetries --) {
@@ -602,7 +603,6 @@ void timedTasks() {
 	if (timeStatus() == timeNeedsSync) {
 		Serial.println("Time needs synchronization. Updating..."); getNTPtime();
 	}
-	//if (!timeClient.update()) Serial.println("Time update FAILED!");
   }
 }
 
