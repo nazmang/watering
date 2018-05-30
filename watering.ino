@@ -327,7 +327,10 @@ void setup() {
 	  Alarm.alarmRepeat(21, 20, 0, channel3_on);
 	  Alarm.alarmRepeat(21, 30, 0, channel3_off);
 #endif
-
+  }
+  else
+  {
+	  Serial.println("Time is not set! Can't initialize timers.");
   }
 }
 
