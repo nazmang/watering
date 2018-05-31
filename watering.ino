@@ -40,14 +40,22 @@
 #include <PubSubClient.h>
 #include <Ticker.h>
 #include <TimeAlarms.h>
-#include <sntp.h>
+
+
+
+#ifdef DEBUG
+#define         DEBUG_PRINT(x)    Serial.print(x)
+#define         DEBUG_PRINTLN(x)  Serial.println(x)
+#else
+#define         DEBUG_PRINT(x)
+#define         DEBUG_PRINTLN(x)
+#endif
 
 #define B_1 0
 #define B_2 9
 #define B_3 10
 #define B_4 14
 #define L_1 12
-//#define L_1 16
 #define L_2 5
 #define L_3 4
 #define L_4 15
@@ -65,13 +73,67 @@ long rssi;
 unsigned long TTasks;
 
 WiFiUDP ntpUDP;
-#define DEBUG_NTPClient
 
+IPAddress timeServerIP; 
+const char* ntpServerName = "pool.ntp.org";
+const int NTP_PACKET_SIZE = 48; // NTP time stamp is in the first 48 bytes of the message
+unsigned int localPort = 2390;      // local port to listen for UDP packets
+byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing packets
+
+									// send an NTP request to the time server at the given address
+void sendNTPpacket(IPAddress& address) {
+	Serial.println("sending NTP packet...");
+	// set all bytes in the buffer to 0
+	memset(packetBuffer, 0, NTP_PACKET_SIZE);
+	// Initialize values needed to form NTP request
+	// (see URL above for details on the packets)
+	packetBuffer[0] = 0b11100011;   // LI, Version, Mode
+	packetBuffer[1] = 0;     // Stratum, or type of clock
+	packetBuffer[2] = 6;     // Polling Interval
+	packetBuffer[3] = 0xEC;  // Peer Clock Precision
+							 // 8 bytes of zero for Root Delay & Root Dispersion
+	packetBuffer[12] = 49;
+	packetBuffer[13] = 0x4E;
+	packetBuffer[14] = 49;
+	packetBuffer[15] = 52;
+
+	// all NTP fields have been given values, now
+	// you can send a packet requesting a timestamp:
+	ntpUDP.beginPacket(address, 123); //NTP requests are to port 123
+	ntpUDP.write(packetBuffer, NTP_PACKET_SIZE);
+	ntpUDP.endPacket();
+}
 
 time_t getNTPtime() {
-	
-	return sntp_get_current_timestamp();
+	Serial.println("Starting UDP");
+	ntpUDP.begin(localPort);
+	Serial.print("Local port: ");
+	Serial.println(ntpUDP.localPort());
+	Serial.println("waiting for sync");
+
+	while (ntpUDP.parsePacket() > 0); // discard any previously received packets
+	Serial.println("Transmit NTP Request to "+ timeServerIP.toString());
+	sendNTPpacket(timeServerIP);
+	uint32_t beginWait = millis();
+	while (millis() - beginWait < 1500) {
+		int size = ntpUDP.parsePacket();
+		if (size >= NTP_PACKET_SIZE) {
+			Serial.println("Receive NTP Response");
+			ntpUDP.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
+			unsigned long secsSince1900;
+			// convert four bytes starting at location 40 to a long integer
+			secsSince1900 = (unsigned long)packetBuffer[40] << 24;
+			secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
+			secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
+			secsSince1900 |= (unsigned long)packetBuffer[43];
+			return secsSince1900 - 2208988800UL + NTP_TIMEZONE * SECS_PER_HOUR;
+		}
+	}
+	Serial.println("No NTP Response :-(");
+	return 0; // return 0 if unable to get the time	
 }
+
+
 
 Ticker sensor_timer;
 bool isRain = false;
@@ -111,12 +173,15 @@ bool isRain = false;
 extern "C" { 
   #include "user_interface.h" 
 }
-#ifdef TLS
+#ifdef MQTT_TLS
 WiFiClientSecure  wifiClient;
 #else
 WiFiClient        wifiClient;
 #endif
 PubSubClient mqttClient(wifiClient, MQTT_SERVER, MQTT_PORT);
+
+
+
 
 void callback(const MQTT::Publish& pub) {
   if (pub.payload_string() == "stat") {
@@ -259,14 +324,7 @@ void setup() {
   Serial.print(UID);
   Serial.print("\nConnecting to "); Serial.print(WIFI_SSID); Serial.print(" Wifi"); 
   
-  sntp_stop();
-  sntp_setservername(0, "ntp.time.in.ua");
-  sntp_setservername(1, "pool.ntp.org");
-  sntp_set_timezone(2);
-  sntp_init();
-  setSyncProvider(getNTPtime);
-
-
+  
   while ((WiFi.status() != WL_CONNECTED) && kRetries --) {
     delay(500);
     Serial.print(" .");
@@ -274,9 +332,7 @@ void setup() {
   if (WiFi.status() == WL_CONNECTED) {  
     Serial.println(" DONE");
     Serial.print("IP Address is: "); Serial.println(WiFi.localIP());
-	Serial.print("Requesting curent date/time ");
-	Serial.println(sntp_get_current_timestamp());
-    Serial.print("Connecting to ");Serial.print(MQTT_SERVER);Serial.print(" Broker . .");
+	Serial.print("Connecting to ");Serial.print(MQTT_SERVER);Serial.print(" Broker . .");
     delay(500);
     while (!mqttClient.connect(MQTT::Connect(UID).set_keepalive(90).set_auth(MQTT_USER, MQTT_PASS)) && kRetries --) {
       Serial.print(" .");
@@ -290,6 +346,15 @@ void setup() {
       mqttClient.subscribe(MQTT_TOPIC);
       blinkLED(LED, 40, 8);
       digitalWrite(LED, LOW);	 
+	  //	  
+	  Serial.println("Setting time via NTP ...");
+	  WiFi.hostByName(ntpServerName, timeServerIP);
+	  setTime(getNTPtime());
+	  if (timeStatus() == timeSet) {
+		  Serial.print("Time is set. Current timestamp is ");
+		  Serial.println(now());
+		  setSyncProvider(getNTPtime);
+	  }
     }
     else {
       Serial.println(" FAILED!");
@@ -304,29 +369,30 @@ void setup() {
 	requestRestart = true;
   }
   if (timeStatus() == timeSet) {
+	  
 #ifdef CH_1
 	  Alarm.alarmRepeat(7, 20, 0, channel1_on);
 	  Alarm.alarmRepeat(7, 40, 0, channel1_off);
-	  Alarm.alarmRepeat(20, 40, 0, channel1_on);
-	  Alarm.alarmRepeat(20, 50, 0, channel1_off);
+	  Alarm.alarmRepeat(22, 52, 0, channel1_on);
+	  Alarm.alarmRepeat(23, 00, 0, channel1_off);
 #endif
 #ifdef CH_2
 	  Alarm.alarmRepeat(7, 40, 0, channel2_on);
 	  Alarm.alarmRepeat(8, 0, 0, channel2_off);
-	  Alarm.alarmRepeat(20, 50, 0, channel2_on);
-	  Alarm.alarmRepeat(21, 0, 0, channel2_off);
+	  Alarm.alarmRepeat(23, 10, 0, channel2_on);
+	  Alarm.alarmRepeat(23, 20, 0, channel2_off);
 #endif
 #ifdef CH_3
 	  Alarm.alarmRepeat(8, 0, 0, channel3_on);
 	  Alarm.alarmRepeat(8, 20, 0, channel3_off);
-	  Alarm.alarmRepeat(21, 10, 0, channel3_on);
-	  Alarm.alarmRepeat(21, 20, 0, channel3_off);
+	  Alarm.alarmRepeat(23, 20, 0, channel3_on);
+	  Alarm.alarmRepeat(23, 30, 0, channel3_off);
 #endif
 #ifdef CH_4
 	  Alarm.alarmRepeat(8, 20, 0, channel3_on);
 	  Alarm.alarmRepeat(8, 40, 0, channel3_off);
-	  Alarm.alarmRepeat(21, 20, 0, channel3_on);
-	  Alarm.alarmRepeat(21, 30, 0, channel3_off);
+	  Alarm.alarmRepeat(23, 30, 0, channel3_on);
+	  Alarm.alarmRepeat(23, 40, 0, channel3_off);
 #endif
   }
   else
@@ -342,8 +408,7 @@ void loop() {
   if (OTAupdate == false) { 
     mqttClient.loop();
     timedTasks();
-    checkStatus();
-	//if (!timeClient.update()) Serial.println("Time update FAILED!");
+    checkStatus();	
   }
 }
 
@@ -601,8 +666,11 @@ void timedTasks() {
     checkConnection();
 	digitalClockDisplay();
 	if (timeStatus() == timeNeedsSync) {
-		Serial.println("Time needs synchronization. Updating..."); getNTPtime();
+		Serial.println("Time needs synchronization. Updating..."); 
+		WiFi.hostByName(ntpServerName, timeServerIP);
+		getNTPtime();
 	}
   }
 }
+
 
