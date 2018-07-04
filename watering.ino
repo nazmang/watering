@@ -28,6 +28,9 @@
   ===============================================================================================
 */
 
+#include <ESP8266WebServerSecure.h>
+#include <ESP8266WebServer.h>
+#include <WiFiManager.h>
 #include <TimeLib.h>
 #include <Time.h>
 #include "config_mc.h"
@@ -40,6 +43,8 @@
 #include <PubSubClient.h>
 #include <Ticker.h>
 #include <TimeAlarms.h>
+//#include <DNSServer.h>       
+
 
 
 
@@ -71,11 +76,10 @@ char ESP_CHIP_ID[8];
 char UID[16];
 long rssi;
 unsigned long TTasks;
-
+Settings settings;
 WiFiUDP ntpUDP;
-
 IPAddress timeServerIP; 
-const char* ntpServerName = "pool.ntp.org";
+String ntpServerName = "pool.ntp.org";
 const int NTP_PACKET_SIZE = 48; // NTP time stamp is in the first 48 bytes of the message
 unsigned int localPort = 2390;      // local port to listen for UDP packets
 byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing packets
@@ -234,13 +238,40 @@ void callback(const MQTT::Publish& pub) {
 void setup() {
   pinMode(LED, OUTPUT);
   digitalWrite(LED, HIGH);
-  // Rain sensor
-  pinMode(RAIN_SENSOR, INPUT);
-  sensor_timer.attach(300, detectRain);
-  //setTime(7, 19, 0, 24, 5, 18); // set time to
+  
+ 
   Serial.begin(115200);
   sprintf(ESP_CHIP_ID, "%06X", ESP.getChipId());
   sprintf(UID, HOST_PREFIX, ESP_CHIP_ID);
+
+#ifdef TLS
+  WiFiManagerParameter custom_text("<p>MQTT username, password and broker port</p>");
+  WiFiManagerParameter custom_mqtt_server("mqtt-server", "MQTT Broker IP", "m21.cloudmqtt.com", STRUCT_CHAR_ARRAY_SIZE, "disabled");
+#else
+  WiFiManagerParameter custom_text("<p>MQTT username, password, broker IP address and broker port</p>");
+  WiFiManagerParameter custom_mqtt_server("mqtt-server", "MQTT Broker IP", settings.mqttServer, STRUCT_CHAR_ARRAY_SIZE);
+#endif
+  WiFiManagerParameter custom_mqtt_user("mqtt-user", "MQTT User", settings.mqttUser, STRUCT_CHAR_ARRAY_SIZE);
+  WiFiManagerParameter custom_mqtt_password("mqtt-password", "MQTT Password", settings.mqttPassword, STRUCT_CHAR_ARRAY_SIZE, "type = \"password\"");
+  WiFiManagerParameter custom_mqtt_port("mqtt-port", "MQTT Broker Port", settings.mqttPort, 6);
+
+  WiFiManager wifiManager;
+
+  wifiManager.addParameter(&custom_text);
+  wifiManager.addParameter(&custom_mqtt_user);
+  wifiManager.addParameter(&custom_mqtt_password);
+  wifiManager.addParameter(&custom_mqtt_server);
+  wifiManager.addParameter(&custom_mqtt_port);
+
+  wifiManager.setAPCallback(configModeCallback);
+  wifiManager.setConfigPortalTimeout(180);
+  // set config save notify callback
+  wifiManager.setSaveConfigCallback(saveConfigCallback);
+
+  // Rain sensor
+  pinMode(RAIN_SENSOR, INPUT);
+  sensor_timer.attach(300, detectRain);
+
   EEPROM.begin(8);
   #ifdef CH_1
     pinMode(B_1, INPUT);
@@ -348,7 +379,11 @@ void setup() {
       digitalWrite(LED, LOW);	 
 	  //	  
 	  Serial.println("Setting time via NTP ...");
-	  WiFi.hostByName(ntpServerName, timeServerIP);
+#ifdef NTP_SERVER1
+	  ntpServerName = NTP_SERVER1;
+#endif // NTP_SERVER1
+
+	  WiFi.hostByName(ntpServerName.c_str(), timeServerIP);
 	  setTime(getNTPtime());
 	  if (timeStatus() == timeSet) {
 		  Serial.print("Time is set. Current timestamp is ");
@@ -667,7 +702,7 @@ void timedTasks() {
 	digitalClockDisplay();
 	if (timeStatus() == timeNeedsSync) {
 		Serial.println("Time needs synchronization. Updating..."); 
-		WiFi.hostByName(ntpServerName, timeServerIP);
+		WiFi.hostByName(ntpServerName.c_str(), timeServerIP);
 		getNTPtime();
 	}
   }
