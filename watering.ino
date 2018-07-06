@@ -43,111 +43,15 @@
 #include <PubSubClient.h>
 #include <Ticker.h>
 #include <TimeAlarms.h>
-//#include <DNSServer.h>       
-
-
-
-
-#ifdef DEBUG
-#define         DEBUG_PRINT(x)    Serial.print(x)
-#define         DEBUG_PRINTLN(x)  Serial.println(x)
-#else
-#define         DEBUG_PRINT(x)
-#define         DEBUG_PRINTLN(x)
-#endif
-
-#define B_1 0
-#define B_2 9
-#define B_3 10
-#define B_4 14
-#define L_1 12
-#define L_2 5
-#define L_3 4
-#define L_4 15
-#define LED 13
-#define RAIN_SENSOR 16
-#define HOST_PREFIX  "Sonoff_%s"
-#define HEADER       "\n\n--------------  KmanSonoff_v1.00mc  --------------"
-#define VER          "ksmc_v1.00"
-
-bool requestRestart = false;
-bool OTAupdate = false;
-char ESP_CHIP_ID[8];
-char UID[16];
-long rssi;
-unsigned long TTasks;
-Settings settings;
-WiFiUDP ntpUDP;
-IPAddress timeServerIP; 
-String ntpServerName = "pool.ntp.org";
-const int NTP_PACKET_SIZE = 48; // NTP time stamp is in the first 48 bytes of the message
-unsigned int localPort = 2390;      // local port to listen for UDP packets
-byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing packets
-
-									// send an NTP request to the time server at the given address
-void sendNTPpacket(IPAddress& address) {
-	Serial.println("sending NTP packet...");
-	// set all bytes in the buffer to 0
-	memset(packetBuffer, 0, NTP_PACKET_SIZE);
-	// Initialize values needed to form NTP request
-	// (see URL above for details on the packets)
-	packetBuffer[0] = 0b11100011;   // LI, Version, Mode
-	packetBuffer[1] = 0;     // Stratum, or type of clock
-	packetBuffer[2] = 6;     // Polling Interval
-	packetBuffer[3] = 0xEC;  // Peer Clock Precision
-							 // 8 bytes of zero for Root Delay & Root Dispersion
-	packetBuffer[12] = 49;
-	packetBuffer[13] = 0x4E;
-	packetBuffer[14] = 49;
-	packetBuffer[15] = 52;
-
-	// all NTP fields have been given values, now
-	// you can send a packet requesting a timestamp:
-	ntpUDP.beginPacket(address, 123); //NTP requests are to port 123
-	ntpUDP.write(packetBuffer, NTP_PACKET_SIZE);
-	ntpUDP.endPacket();
-}
-
-time_t getNTPtime() {
-	Serial.println("Starting UDP");
-	ntpUDP.begin(localPort);
-	Serial.print("Local port: ");
-	Serial.println(ntpUDP.localPort());
-	Serial.println("waiting for sync");
-
-	while (ntpUDP.parsePacket() > 0); // discard any previously received packets
-	Serial.println("Transmit NTP Request to "+ timeServerIP.toString());
-	sendNTPpacket(timeServerIP);
-	uint32_t beginWait = millis();
-	while (millis() - beginWait < 1500) {
-		int size = ntpUDP.parsePacket();
-		if (size >= NTP_PACKET_SIZE) {
-			Serial.println("Receive NTP Response");
-			ntpUDP.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
-			unsigned long secsSince1900;
-			// convert four bytes starting at location 40 to a long integer
-			secsSince1900 = (unsigned long)packetBuffer[40] << 24;
-			secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
-			secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
-			secsSince1900 |= (unsigned long)packetBuffer[43];
-			return secsSince1900 - 2208988800UL + NTP_TIMEZONE * SECS_PER_HOUR;
-		}
-	}
-	Serial.println("No NTP Response :-(");
-	return 0; // return 0 if unable to get the time	
-}
-
-
-
-Ticker sensor_timer;
-bool isRain = false;
+#include "watering.h"
+    
 
 #ifdef CH_1
   bool sendStatus1 = false;
   int  SS1;
   unsigned long count1 = 0;
   Ticker btn_timer1;
-  void channel1_on() { if (!isRain) digitalWrite(L_1, HIGH); else Serial.println("It's raining now! Can't turn Relay 1 ON "); sendStatus1 = true; }
+  void channel1_on() { if (!isRain) digitalWrite(L_1, HIGH); else DEBUG_PRINTLN("It's raining now! Can't turn Relay 1 ON "); sendStatus1 = true; }
   void channel1_off() { digitalWrite(L_1, LOW); sendStatus1 = true; }
 #endif
 #ifdef CH_2
@@ -155,7 +59,7 @@ bool isRain = false;
   int  SS2;
   unsigned long count2 = 0;
   Ticker btn_timer2;
-  void channel2_on() { if (!isRain) digitalWrite(L_2, HIGH); else Serial.println("It's raining now! Can't turn Relay 2 ON "); sendStatus2 = true; }
+  void channel2_on() { if (!isRain) digitalWrite(L_2, HIGH); else DEBUG_PRINTLN("It's raining now! Can't turn Relay 2 ON "); sendStatus2 = true; }
   void channel2_off() { digitalWrite(L_2, LOW); sendStatus2 = true; }
 #endif
 #ifdef CH_3
@@ -163,7 +67,7 @@ bool isRain = false;
   int  SS3;
   unsigned long count3 = 0;
   Ticker btn_timer3;
-  void channel3_on() { if (!isRain) digitalWrite(L_3, HIGH); else Serial.println("It's raining now! Can't turn Relay 3 ON "); sendStatus3 = true; }
+  void channel3_on() { if (!isRain) digitalWrite(L_3, HIGH); else DEBUG_PRINTLN("It's raining now! Can't turn Relay 3 ON "); sendStatus3 = true; }
   void channel3_off() { digitalWrite(L_3, LOW); sendStatus3 = true; }
 #endif
 #ifdef CH_4
@@ -171,7 +75,7 @@ bool isRain = false;
   int  SS4;
   unsigned long count4 = 0;
   Ticker btn_timer4;
-  void channel4_on() { if (!isRain) digitalWrite(L_4, HIGH); else Serial.println("It's raining now! Can't turn Relay 4 ON "); sendStatus4 = true; }
+  void channel4_on() { if (!isRain) digitalWrite(L_4, HIGH); else DEBUG_PRINTLN("It's raining now! Can't turn Relay 4 ON "); sendStatus4 = true; }
   void channel4_off() { digitalWrite(L_4, LOW); sendStatus4 = true; }
 #endif
 extern "C" { 
@@ -244,13 +148,8 @@ void setup() {
   sprintf(ESP_CHIP_ID, "%06X", ESP.getChipId());
   sprintf(UID, HOST_PREFIX, ESP_CHIP_ID);
 
-#ifdef TLS
-  WiFiManagerParameter custom_text("<p>MQTT username, password and broker port</p>");
-  WiFiManagerParameter custom_mqtt_server("mqtt-server", "MQTT Broker IP", "m21.cloudmqtt.com", STRUCT_CHAR_ARRAY_SIZE, "disabled");
-#else
   WiFiManagerParameter custom_text("<p>MQTT username, password, broker IP address and broker port</p>");
   WiFiManagerParameter custom_mqtt_server("mqtt-server", "MQTT Broker IP", settings.mqttServer, STRUCT_CHAR_ARRAY_SIZE);
-#endif
   WiFiManagerParameter custom_mqtt_user("mqtt-user", "MQTT User", settings.mqttUser, STRUCT_CHAR_ARRAY_SIZE);
   WiFiManagerParameter custom_mqtt_password("mqtt-password", "MQTT Password", settings.mqttPassword, STRUCT_CHAR_ARRAY_SIZE, "type = \"password\"");
   WiFiManagerParameter custom_mqtt_port("mqtt-port", "MQTT Broker Port", settings.mqttPort, 6);
@@ -267,6 +166,18 @@ void setup() {
   wifiManager.setConfigPortalTimeout(180);
   // set config save notify callback
   wifiManager.setSaveConfigCallback(saveConfigCallback);
+
+  if (shouldSaveConfig) {
+	  strcpy(settings.mqttServer, custom_mqtt_server.getValue());
+	  strcpy(settings.mqttUser, custom_mqtt_user.getValue());
+	  strcpy(settings.mqttPassword, custom_mqtt_password.getValue());
+	  strcpy(settings.mqttPort, custom_mqtt_port.getValue());
+
+	  EEPROM.begin(512);
+	  EEPROM.put(30, settings);
+	  EEPROM.end();
+  }
+
 
   // Rain sensor
   pinMode(RAIN_SENSOR, INPUT);
@@ -326,10 +237,10 @@ void setup() {
     OTAupdate = true;
     blinkLED(LED, 400, 2);
     digitalWrite(LED, HIGH);
-    Serial.println("OTA Update Initiated . . .");
+    DEBUG_PRINTLN("OTA Update Initiated . . .");
   });
   ArduinoOTA.onEnd([]() {
-    Serial.println("\nOTA Update Ended . . .s");
+    DEBUG_PRINTLN("\nOTA Update Ended . . .s");
     OTAupdate = false;
     requestRestart = true;
   });
@@ -343,42 +254,42 @@ void setup() {
     blinkLED(LED, 40, 2);
     OTAupdate = false;
     Serial.printf("OTA Error [%u] ", error);
-    if (error == OTA_AUTH_ERROR) Serial.println(". . . . . . . . . . . . . . . Auth Failed");
-    else if (error == OTA_BEGIN_ERROR) Serial.println(". . . . . . . . . . . . . . . Begin Failed");
-    else if (error == OTA_CONNECT_ERROR) Serial.println(". . . . . . . . . . . . . . . Connect Failed");
-    else if (error == OTA_RECEIVE_ERROR) Serial.println(". . . . . . . . . . . . . . . Receive Failed");
-    else if (error == OTA_END_ERROR) Serial.println(". . . . . . . . . . . . . . . End Failed");
+    if (error == OTA_AUTH_ERROR) DEBUG_PRINTLN(". . . . . . . . . . . . . . . Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) DEBUG_PRINTLN(". . . . . . . . . . . . . . . Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) DEBUG_PRINTLN(". . . . . . . . . . . . . . . Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) DEBUG_PRINTLN(". . . . . . . . . . . . . . . Receive Failed");
+    else if (error == OTA_END_ERROR) DEBUG_PRINTLN(". . . . . . . . . . . . . . . End Failed");
   });
   ArduinoOTA.begin();
-  Serial.println(HEADER);
-  Serial.print("\nUnit ID: ");
-  Serial.print(UID);
-  Serial.print("\nConnecting to "); Serial.print(WIFI_SSID); Serial.print(" Wifi"); 
+  DEBUG_PRINTLN(HEADER);
+  DEBUG_PRINT("\nUnit ID: ");
+  DEBUG_PRINT(UID);
+  DEBUG_PRINT("\nConnecting to "); DEBUG_PRINT(WIFI_SSID); DEBUG_PRINT(" Wifi"); 
   
   
   while ((WiFi.status() != WL_CONNECTED) && kRetries --) {
     delay(500);
-    Serial.print(" .");
+    DEBUG_PRINT(" .");
   }
   if (WiFi.status() == WL_CONNECTED) {  
-    Serial.println(" DONE");
-    Serial.print("IP Address is: "); Serial.println(WiFi.localIP());
-	Serial.print("Connecting to ");Serial.print(MQTT_SERVER);Serial.print(" Broker . .");
+    DEBUG_PRINTLN(" DONE");
+    DEBUG_PRINT("IP Address is: "); DEBUG_PRINTLN(WiFi.localIP());
+	DEBUG_PRINT("Connecting to ");DEBUG_PRINT(MQTT_SERVER);DEBUG_PRINT(" Broker . .");
     delay(500);
     while (!mqttClient.connect(MQTT::Connect(UID).set_keepalive(90).set_auth(MQTT_USER, MQTT_PASS)) && kRetries --) {
-      Serial.print(" .");
+      DEBUG_PRINT(" .");
       delay(1000);
     }
 	
     if(mqttClient.connected()) {
-      Serial.println(" DONE");
-      Serial.println("\n---------------------  Logs  ---------------------");
-      Serial.println();
+      DEBUG_PRINTLN(" DONE");
+      DEBUG_PRINTLN("\n---------------------  Logs  ---------------------");
+      DEBUG_PRINTLN();
       mqttClient.subscribe(MQTT_TOPIC);
       blinkLED(LED, 40, 8);
       digitalWrite(LED, LOW);	 
 	  //	  
-	  Serial.println("Setting time via NTP ...");
+	  DEBUG_PRINTLN("Setting time via NTP ...");
 #ifdef NTP_SERVER1
 	  ntpServerName = NTP_SERVER1;
 #endif // NTP_SERVER1
@@ -386,21 +297,21 @@ void setup() {
 	  WiFi.hostByName(ntpServerName.c_str(), timeServerIP);
 	  setTime(getNTPtime());
 	  if (timeStatus() == timeSet) {
-		  Serial.print("Time is set. Current timestamp is ");
-		  Serial.println(now());
+		  DEBUG_PRINT("Time is set. Current timestamp is ");
+		  DEBUG_PRINTLN(now());
 		  setSyncProvider(getNTPtime);
 	  }
     }
     else {
-      Serial.println(" FAILED!");
-      Serial.println("\n--------------------------------------------------");
-      Serial.println();
+      DEBUG_PRINTLN(" FAILED!");
+      DEBUG_PRINTLN("\n--------------------------------------------------");
+      DEBUG_PRINTLN();
     }
   }
   else {
-    Serial.println(" WiFi FAILED!");
-    Serial.println("\n--------------------------------------------------");
-    Serial.println();
+    DEBUG_PRINTLN(" WiFi FAILED!");
+    DEBUG_PRINTLN("\n--------------------------------------------------");
+    DEBUG_PRINTLN();
 	requestRestart = true;
   }
   if (timeStatus() == timeSet) {
@@ -432,7 +343,7 @@ void setup() {
   }
   else
   {
-	  Serial.println("Time is not set! Can't initialize timers.");
+	  DEBUG_PRINTLN("Time is not set! Can't initialize timers.");
   }
 }
 
@@ -450,18 +361,18 @@ void loop() {
 void digitalClockDisplay()
 {
 	// digital clock display of the time
-	Serial.print(hour());
+	DEBUG_PRINT(hour());
 	printDigits(minute());
 	printDigits(second());
-	Serial.println();
+	DEBUG_PRINTLN();
 }
 
 void printDigits(int digits)
 {
-	Serial.print(":");
+	DEBUG_PRINT(":");
 	if (digits < 10)
-		Serial.print('0');
-	Serial.print(digits);
+		DEBUG_PRINT('0');
+	DEBUG_PRINT(digits);
 }
 
 void blinkLED(int pin, int duration, int n) {             
@@ -488,7 +399,7 @@ void detectRain() {
        sendStatus1 = true;
       } 
       else if (count1 >40){
-        Serial.println("\n\nSonoff Rebooting . . . . . . . . Please Wait"); 
+        DEBUG_PRINTLN("\n\nSonoff Rebooting . . . . . . . . Please Wait"); 
         requestRestart = true;
       } 
       count1=0;
@@ -541,11 +452,11 @@ void detectRain() {
 void checkConnection() {
   if (WiFi.status() == WL_CONNECTED)  {
     if (mqttClient.connected()) {
-      Serial.println("mqtt broker connection . . . . . . . . . . OK");
+      DEBUG_PRINTLN("mqtt broker connection . . . . . . . . . . OK");
     } 
     else {
-      Serial.println("mqtt broker connection . . . . . . . . . . LOST");
-	  Serial.print("Reconnecting ");
+      DEBUG_PRINTLN("mqtt broker connection . . . . . . . . . . LOST");
+	  DEBUG_PRINT("Reconnecting ");
 	  while (!mqttClient.connect(MQTT::Connect(UID).set_keepalive(90).set_auth(MQTT_USER, MQTT_PASS)) && kRetries--) {
 		  Serial.print(" .");
 		  delay(1000);
@@ -554,7 +465,7 @@ void checkConnection() {
     }
   }
   else { 
-    Serial.println("WiFi connection . . . . . . . . . . LOST");
+    DEBUG_PRINTLN("WiFi connection . . . . . . . . . . LOST");
     requestRestart = true;
   }
 }
@@ -572,7 +483,7 @@ void checkStatus() {
         } else {
           mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/stat", "1off").set_retain().set_qos(QOS));
         }
-        Serial.println("Relay 1 . . . . . . . . . . . . . . . . . . OFF");
+        DEBUG_PRINTLN("Relay 1 . . . . . . . . . . . . . . . . . . OFF");
       } else {
         if (rememberRelayState1) {
           EEPROM.write(0, 1);
@@ -583,7 +494,7 @@ void checkStatus() {
       } else {
         mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/stat", "1on").set_retain().set_qos(QOS));
       }
-      Serial.println("Relay 1 . . . . . . . . . . . . . . . . . . ON");
+      DEBUG_PRINTLN("Relay 1 . . . . . . . . . . . . . . . . . . ON");
       }
       sendStatus1 = false;
     }
@@ -600,7 +511,7 @@ void checkStatus() {
         } else {
           mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/stat", "2off").set_retain().set_qos(QOS));
         }
-        Serial.println("Relay 2 . . . . . . . . . . . . . . . . . . OFF");
+        DEBUG_PRINTLN("Relay 2 . . . . . . . . . . . . . . . . . . OFF");
       } else {
         if (rememberRelayState2) {
           EEPROM.write(1, 1);
@@ -611,7 +522,7 @@ void checkStatus() {
       } else {
         mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/stat", "2on").set_qos(QOS));
       }
-      Serial.println("Relay 2 . . . . . . . . . . . . . . . . . . ON");
+      DEBUG_PRINTLN("Relay 2 . . . . . . . . . . . . . . . . . . ON");
       }
       sendStatus2 = false;
     }
@@ -628,7 +539,7 @@ void checkStatus() {
         } else {
           mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/stat", "3off").set_retain().set_qos(QOS));
         }
-        Serial.println("Relay 3 . . . . . . . . . . . . . . . . . . OFF");
+        DEBUG_PRINTLN("Relay 3 . . . . . . . . . . . . . . . . . . OFF");
       } else {
         if (rememberRelayState3) {
           EEPROM.write(2, 1);
@@ -639,7 +550,7 @@ void checkStatus() {
       } else {
         mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/stat", "3on").set_retain().set_qos(QOS));
       }
-      Serial.println("Relay 3 . . . . . . . . . . . . . . . . . . ON");
+      DEBUG_PRINTLN("Relay 3 . . . . . . . . . . . . . . . . . . ON");
       }
       sendStatus3 = false;
     }
@@ -656,7 +567,7 @@ void checkStatus() {
         } else {
           mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/stat", "4off").set_retain().set_qos(QOS));
         }
-        Serial.println("Relay 4 . . . . . . . . . . . . . . . . . . OFF");
+        DEBUG_PRINTLN("Relay 4 . . . . . . . . . . . . . . . . . . OFF");
       } else {
         if (rememberRelayState4) {
           EEPROM.write(3, 1);
@@ -667,7 +578,7 @@ void checkStatus() {
       } else {
         mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/stat", "4on").set_retain().set_qos(QOS));
       }
-      Serial.println("Relay 4 . . . . . . . . . . . . . . . . . . ON");
+      DEBUG_PRINTLN("Relay 4 . . . . . . . . . . . . . . . . . . ON");
       }
       sendStatus4 = false;
     }
@@ -701,7 +612,7 @@ void timedTasks() {
     checkConnection();
 	digitalClockDisplay();
 	if (timeStatus() == timeNeedsSync) {
-		Serial.println("Time needs synchronization. Updating..."); 
+		DEBUG_PRINTLN("Time needs synchronization. Updating..."); 
 		WiFi.hostByName(ntpServerName.c_str(), timeServerIP);
 		getNTPtime();
 	}
