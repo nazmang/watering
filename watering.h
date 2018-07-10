@@ -28,6 +28,9 @@ typedef struct {
 	char            mqttPassword[STRUCT_CHAR_ARRAY_SIZE] = "";//{0};
 	char            mqttServer[STRUCT_CHAR_ARRAY_SIZE] = "";//{0};
 	char            mqttPort[6] = "";//{0};
+	char			sntpServer1[STRUCT_CHAR_ARRAY_SIZE] = "";
+	char			sntpServer2[STRUCT_CHAR_ARRAY_SIZE] = "";
+	char			timeZone[4] = "";
 } Settings;
 
 bool requestRestart = false;
@@ -111,3 +114,31 @@ void configModeCallback(WiFiManager *myWiFiManager) {
 
 Ticker sensor_timer;
 bool isRain = false;
+
+void printDigits(int digits)
+{
+	DEBUG_PRINT(":");
+	if (digits < 10)
+		DEBUG_PRINT('0');
+	DEBUG_PRINT(digits);
+}
+
+void digitalClockDisplay()
+{
+	// digital clock display of the time
+	DEBUG_PRINT(hour());
+	printDigits(minute());
+	printDigits(second());
+	DEBUG_PRINTLN();
+}
+
+
+
+void blinkLED(int pin, int duration, int n) {
+	for (int i = 0; i<n; i++) {
+		digitalWrite(pin, HIGH);
+		delay(duration);
+		digitalWrite(pin, LOW);
+		delay(duration);
+	}
+}

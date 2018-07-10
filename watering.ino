@@ -86,7 +86,7 @@ WiFiClientSecure  wifiClient;
 #else
 WiFiClient        wifiClient;
 #endif
-PubSubClient mqttClient(wifiClient, MQTT_SERVER, MQTT_PORT);
+PubSubClient mqttClient(wifiClient);
 
 
 
@@ -148,12 +148,21 @@ void setup() {
   sprintf(ESP_CHIP_ID, "%06X", ESP.getChipId());
   sprintf(UID, HOST_PREFIX, ESP_CHIP_ID);
 
+  // load custom params
+  EEPROM.begin(512);
+  EEPROM.get(30, settings);
+  EEPROM.end();
+
   WiFiManagerParameter custom_text("<p>MQTT username, password, broker IP address and broker port</p>");
   WiFiManagerParameter custom_mqtt_server("mqtt-server", "MQTT Broker IP", settings.mqttServer, STRUCT_CHAR_ARRAY_SIZE);
   WiFiManagerParameter custom_mqtt_user("mqtt-user", "MQTT User", settings.mqttUser, STRUCT_CHAR_ARRAY_SIZE);
   WiFiManagerParameter custom_mqtt_password("mqtt-password", "MQTT Password", settings.mqttPassword, STRUCT_CHAR_ARRAY_SIZE, "type = \"password\"");
   WiFiManagerParameter custom_mqtt_port("mqtt-port", "MQTT Broker Port", settings.mqttPort, 6);
 
+  WiFiManagerParameter custom_text2("<p>SNTP servers name and timezone</p>");
+  WiFiManagerParameter custom_sntp_server1("sntp-server1", "europe.pool.ntp.org", settings.sntpServer1, STRUCT_CHAR_ARRAY_SIZE);
+  WiFiManagerParameter custom_sntp_server2("sntp-server2", "time.nist.gov", settings.sntpServer2, STRUCT_CHAR_ARRAY_SIZE);
+  WiFiManagerParameter custom_time_zone("time-zone", "-1", settings.timeZone, 4);
   WiFiManager wifiManager;
 
   wifiManager.addParameter(&custom_text);
@@ -161,17 +170,31 @@ void setup() {
   wifiManager.addParameter(&custom_mqtt_password);
   wifiManager.addParameter(&custom_mqtt_server);
   wifiManager.addParameter(&custom_mqtt_port);
+  wifiManager.addParameter(&custom_text2);
+  wifiManager.addParameter(&custom_sntp_server1);
+  wifiManager.addParameter(&custom_sntp_server2);
+  wifiManager.addParameter(&custom_time_zone);
 
   wifiManager.setAPCallback(configModeCallback);
   wifiManager.setConfigPortalTimeout(180);
   // set config save notify callback
   wifiManager.setSaveConfigCallback(saveConfigCallback);
 
+  if (!wifiManager.autoConnect("Watering")) {
+	  ///ESP.reset();
+	  //DEBUG_PRINT(" .");
+	  DEBUG_PRINT(F("Couldn't connect..."));
+	  delay(30000);
+  }
+
   if (shouldSaveConfig) {
 	  strcpy(settings.mqttServer, custom_mqtt_server.getValue());
 	  strcpy(settings.mqttUser, custom_mqtt_user.getValue());
 	  strcpy(settings.mqttPassword, custom_mqtt_password.getValue());
 	  strcpy(settings.mqttPort, custom_mqtt_port.getValue());
+	  strcpy(settings.sntpServer1, custom_sntp_server1.getValue());
+	  strcpy(settings.sntpServer2, custom_sntp_server2.getValue());
+	  strcpy(settings.timeZone, custom_time_zone.getValue());
 
 	  EEPROM.begin(512);
 	  EEPROM.put(30, settings);
@@ -229,9 +252,10 @@ void setup() {
     //btn_timer4.attach(0.05, button4);
   #endif
   mqttClient.set_callback(callback);
-  WiFi.mode(WIFI_STA);
+  mqttClient.set_server(settings.mqttServer, atoi(settings.mqttPort));
+  /*WiFi.mode(WIFI_STA);
   WiFi.hostname(UID);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);*/
   ArduinoOTA.setHostname(UID);
   ArduinoOTA.onStart([]() {
     OTAupdate = true;
@@ -267,17 +291,17 @@ void setup() {
   DEBUG_PRINT("\nConnecting to "); DEBUG_PRINT(WIFI_SSID); DEBUG_PRINT(" Wifi"); 
   
   
-  while ((WiFi.status() != WL_CONNECTED) && kRetries --) {
+ /* while ((WiFi.status() != WL_CONNECTED) && kRetries --) {
     delay(500);
     DEBUG_PRINT(" .");
-  }
+  }*/
   if (WiFi.status() == WL_CONNECTED) {  
-    DEBUG_PRINTLN(" DONE");
-    DEBUG_PRINT("IP Address is: "); DEBUG_PRINTLN(WiFi.localIP());
-	DEBUG_PRINT("Connecting to ");DEBUG_PRINT(MQTT_SERVER);DEBUG_PRINT(" Broker . .");
+    DEBUG_PRINTLN(F(" DONE"));
+    DEBUG_PRINT(F("IP Address is: ")); DEBUG_PRINTLN(WiFi.localIP());
+	DEBUG_PRINT(F("Connecting to "));DEBUG_PRINT(MQTT_SERVER);DEBUG_PRINT(F(" Broker . ."));
     delay(500);
     while (!mqttClient.connect(MQTT::Connect(UID).set_keepalive(90).set_auth(MQTT_USER, MQTT_PASS)) && kRetries --) {
-      DEBUG_PRINT(" .");
+      DEBUG_PRINT(F(" ."));
       delay(1000);
     }
 	
@@ -291,7 +315,7 @@ void setup() {
 	  //	  
 	  DEBUG_PRINTLN("Setting time via NTP ...");
 #ifdef NTP_SERVER1
-	  ntpServerName = NTP_SERVER1;
+	 // ntpServerName = NTP_SERVER1;
 #endif // NTP_SERVER1
 
 	  WiFi.hostByName(ntpServerName.c_str(), timeServerIP);
@@ -355,32 +379,6 @@ void loop() {
     mqttClient.loop();
     timedTasks();
     checkStatus();	
-  }
-}
-
-void digitalClockDisplay()
-{
-	// digital clock display of the time
-	DEBUG_PRINT(hour());
-	printDigits(minute());
-	printDigits(second());
-	DEBUG_PRINTLN();
-}
-
-void printDigits(int digits)
-{
-	DEBUG_PRINT(":");
-	if (digits < 10)
-		DEBUG_PRINT('0');
-	DEBUG_PRINT(digits);
-}
-
-void blinkLED(int pin, int duration, int n) {             
-  for(int i=0; i<n; i++)  {  
-    digitalWrite(pin, HIGH);        
-    delay(duration);
-    digitalWrite(pin, LOW);
-    delay(duration);
   }
 }
 
