@@ -101,13 +101,6 @@ time_t getNTPtime() {
 	return 0; // return 0 if unable to get the time	
 }
 
-// flag for saving data
-bool shouldSaveConfig = false;
-// callback notifying us of the need to save config
-void saveConfigCallback() {
-	shouldSaveConfig = true;
-}
-
 void configModeCallback(WiFiManager *myWiFiManager) {
 	//ticker.attach(0.2, tick);
 }

@@ -28,6 +28,7 @@
   ===============================================================================================
 */
 
+#include <FS.h> 
 #include <ESP8266WebServerSecure.h>
 #include <ESP8266WebServer.h>
 #include <WiFiManager.h>
@@ -43,6 +44,7 @@
 #include <PubSubClient.h>
 #include <Ticker.h>
 #include <TimeAlarms.h>
+#include <ArduinoJson.h>
 #include "watering.h"
     
 
@@ -88,7 +90,13 @@ WiFiClient        wifiClient;
 #endif
 PubSubClient mqttClient(wifiClient);
 
-
+// flag for saving data
+bool shouldSaveConfig = false;
+// callback notifying us of the need to save config
+void saveConfigCallback() {
+	shouldSaveConfig = true;
+	DEBUG_PRINTLN("Should save config");
+}
 
 
 void callback(const MQTT::Publish& pub) {
@@ -149,9 +157,47 @@ void setup() {
   sprintf(UID, HOST_PREFIX, ESP_CHIP_ID);
 
   // load custom params
-  EEPROM.begin(512);
+  /*EEPROM.begin(512);
   EEPROM.get(30, settings);
-  EEPROM.end();
+  EEPROM.end();*/
+
+  if (SPIFFS.begin()) {
+	  Serial.println("Mounted file system");
+	  if (SPIFFS.exists("/config.json")) {
+		  //file exists, reading and loading
+		  Serial.println("Reading config file");
+		  File configFile = SPIFFS.open("/config.json", "r");
+		  if (configFile) {
+			  Serial.println("Opened config file");
+			  size_t size = configFile.size();
+			  // Allocate a buffer to store contents of the file.
+			  std::unique_ptr<char[]> buf(new char[size]);
+
+			  configFile.readBytes(buf.get(), size);
+			  DynamicJsonBuffer jsonBuffer;
+			  JsonObject& json = jsonBuffer.parseObject(buf.get());
+			  json.printTo(Serial);
+			  if (json.success()) {
+				  Serial.println("\nparsed json");
+
+				  strcpy(settings.mqttServer, json["mqtt_server"]);
+				  strcpy(settings.mqttUser, json["mqtt_user"]);
+				  strcpy(settings.mqttPassword, json["mqtt_password"]);
+				  strcpy(settings.mqttPort, json["mqtt_port"]);
+				  strcpy(settings.sntpServer1, json["sntp_server1"]);
+				  strcpy(settings.sntpServer2, json["sntp_server2"]);
+				  strcpy(settings.timeZone, json["timezone"]);
+
+			  }
+			  else {
+				  Serial.println("failed to load json config");
+			  }
+		  }
+	  }
+  }
+  else {
+	  Serial.println("failed to mount FS");
+  }
 
   WiFiManagerParameter custom_text("<p>MQTT username, password, broker IP address and broker port</p>");
   WiFiManagerParameter custom_mqtt_server("mqtt-server", "MQTT Broker IP", settings.mqttServer, STRUCT_CHAR_ARRAY_SIZE);
@@ -164,6 +210,8 @@ void setup() {
   WiFiManagerParameter custom_sntp_server2("sntp-server2", "time.nist.gov", settings.sntpServer2, STRUCT_CHAR_ARRAY_SIZE);
   WiFiManagerParameter custom_time_zone("time-zone", "-1", settings.timeZone, 4);
   WiFiManager wifiManager;
+  // for debugging 
+  wifiManager.setDebugOutput(true);
 
   wifiManager.addParameter(&custom_text);
   wifiManager.addParameter(&custom_mqtt_user);
@@ -180,14 +228,18 @@ void setup() {
   // set config save notify callback
   wifiManager.setSaveConfigCallback(saveConfigCallback);
 
-  if (!wifiManager.autoConnect("Watering")) {
-	  ///ESP.reset();
+  if (!wifiManager.autoConnect("Watering") && kRetries--) {
 	  //DEBUG_PRINT(" .");
 	  DEBUG_PRINT(F("Couldn't connect..."));
-	  delay(30000);
+	  delay(5000);
+	  ESP.reset();
   }
-
+  //reset settings - for testing
+  //wifiManager.resetSettings();
   if (shouldSaveConfig) {
+	  DEBUG_PRINTLN("Saving config");
+	  DynamicJsonBuffer jsonBuffer;
+	  JsonObject& json = jsonBuffer.createObject();
 	  strcpy(settings.mqttServer, custom_mqtt_server.getValue());
 	  strcpy(settings.mqttUser, custom_mqtt_user.getValue());
 	  strcpy(settings.mqttPassword, custom_mqtt_password.getValue());
@@ -196,9 +248,28 @@ void setup() {
 	  strcpy(settings.sntpServer2, custom_sntp_server2.getValue());
 	  strcpy(settings.timeZone, custom_time_zone.getValue());
 
-	  EEPROM.begin(512);
+	  json["mqtt_server"] = settings.mqttServer;
+	  json["mqtt_user"] = settings.mqttUser;
+	  json["mqtt_password"] = settings.mqttPassword;
+	  json["mqtt_port"] = settings.mqttPort;
+	  json["sntp_server1"] = settings.sntpServer1;
+	  json["sntp_server2"] = settings.sntpServer2;
+	  json["timezone"]  = settings.timeZone;
+
+	  DEBUG_PRINTLN(settings.mqttServer); 
+	  DEBUG_PRINTLN(settings.mqttUser);
+	  DEBUG_PRINTLN(settings.mqttPassword);
+	  DEBUG_PRINTLN(settings.mqttPort);
+	  DEBUG_PRINTLN(settings.sntpServer1);
+	  DEBUG_PRINTLN(settings.sntpServer2);
+	  DEBUG_PRINTLN(settings.timeZone);
+
+	  if (SPIFFS.begin()) {
+
+	  }
+	  /*EEPROM.begin(512);
 	  EEPROM.put(30, settings);
-	  EEPROM.end();
+	  EEPROM.end();*/
   }
 
 
@@ -256,7 +327,8 @@ void setup() {
   /*WiFi.mode(WIFI_STA);
   WiFi.hostname(UID);
   WiFi.begin(WIFI_SSID, WIFI_PASS);*/
-  ArduinoOTA.setHostname(UID);
+  // OTA
+ /* ArduinoOTA.setHostname(UID);
   ArduinoOTA.onStart([]() {
     OTAupdate = true;
     blinkLED(LED, 400, 2);
@@ -284,7 +356,7 @@ void setup() {
     else if (error == OTA_RECEIVE_ERROR) DEBUG_PRINTLN(". . . . . . . . . . . . . . . Receive Failed");
     else if (error == OTA_END_ERROR) DEBUG_PRINTLN(". . . . . . . . . . . . . . . End Failed");
   });
-  ArduinoOTA.begin();
+  ArduinoOTA.begin();*/
   DEBUG_PRINTLN(HEADER);
   DEBUG_PRINT("\nUnit ID: ");
   DEBUG_PRINT(UID);
